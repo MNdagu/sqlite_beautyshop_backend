@@ -1,8 +1,8 @@
-"""Added foreign key relationship between users and products
+"""added user_id column
 
-Revision ID: 2027680b2152
+Revision ID: 9755a92a3351
 Revises: 
-Create Date: 2024-11-06 17:34:07.669576
+Create Date: 2024-11-07 01:28:25.078670
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '2027680b2152'
+revision = '9755a92a3351'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -30,7 +30,7 @@ def upgrade():
     sa.Column('last_name', sa.String(length=50), nullable=False),
     sa.Column('email', sa.String(length=120), nullable=False),
     sa.Column('password_digest', sa.String(length=200), nullable=False),
-    sa.Column('role', sa.Enum('ADMIN', 'CUSTOMER', name='roleenum'), nullable=False),
+    sa.Column('role', sa.Enum('admin', 'customer', name='roleenum'), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
@@ -61,10 +61,10 @@ def upgrade():
     sa.Column('price', sa.Numeric(precision=10, scale=2), nullable=False),
     sa.Column('stock', sa.Integer(), nullable=False),
     sa.Column('category_id', sa.Integer(), nullable=False),
-    sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('image_url', sa.String(length=255), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.Column('user_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['category_id'], ['categories.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')

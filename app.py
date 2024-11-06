@@ -6,6 +6,7 @@ from models import db, User, Product, Category, Order, OrderItem, Cart, CartItem
 from jwt_helpers import admin_required
 from flask_migrate import Migrate
 from datetime import timedelta
+from auth import auth_bp 
 from flask_cors import CORS
 import os
 
@@ -193,10 +194,12 @@ def create_app():
                 return {"message": "No analytics data available"}, 404
             return jsonify(analytics.to_dict())
 
-    api_analytics = Api(Blueprint('analytics', __name__))
+    # Create Api instance for analytics blueprint
+    api_analytics_bp = Blueprint('analytics', __name__)  # Create the blueprint
+    api_analytics = Api(api_analytics_bp)  # Create Api instance with the blueprint
     api_analytics.add_resource(AnalyticsResource, '/analytics')
 
-    ### Invoice Management for Users ###
+    # Create Invoice Management Resource for Users ###
     class InvoiceResource(Resource):
         @jwt_required()
         def get(self, order_id):
@@ -205,15 +208,26 @@ def create_app():
                 return {"message": "Invoice not found"}, 404
             return jsonify(invoice.to_dict())
 
-    api_invoice = Api(Blueprint('invoice', __name__))
+    # Create a blueprint for the invoice resource
+    invoice_bp = Blueprint('invoice', __name__)
+    api_invoice = Api(invoice_bp)  # Create an Api instance for the blueprint
     api_invoice.add_resource(InvoiceResource, '/invoices/<int:order_id>')
 
-    # Register blueprints
+    ### Admin Blueprint Registration ###
+    admin_bp = Blueprint('admin', __name__)
+    api_admin = Api(admin_bp)
+    api_admin.add_resource(AdminProductResource, '/products', '/products/<int:product_id>')
+    api_admin.add_resource(AdminOrderResource, '/orders', '/orders/<int:order_id>')
+
+    app.register_blueprint(admin_bp, url_prefix='/api/admin')
+
+    ### Register All Blueprints ###
     app.register_blueprint(cart_bp, url_prefix='/api')
     app.register_blueprint(order_bp, url_prefix='/api')
     app.register_blueprint(product_bp, url_prefix='/api')
-    app.register_blueprint(api_analytics.blueprint)
-    app.register_blueprint(api_invoice.blueprint)
+    app.register_blueprint(api_analytics_bp, url_prefix='/api')  # Register analytics blueprint
+    app.register_blueprint(invoice_bp, url_prefix='/api')  # Register invoice blueprint
+    app.register_blueprint(auth_bp, url_prefix='/api')
 
     return app
 

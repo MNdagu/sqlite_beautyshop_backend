@@ -8,8 +8,8 @@ db = SQLAlchemy()
 
 # Enum for user roles
 class RoleEnum(enum.Enum):
-    ADMIN = "admin"
-    CUSTOMER = "customer"
+    admin = "admin"
+    customer = "customer"
 
 # Enum for order status
 class OrderStatusEnum(enum.Enum):
@@ -30,7 +30,7 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
 
     orders = db.relationship('Order', backref='user', lazy=True)
-    products = db.relationship('Product', backref='admin', lazy=True)
+    products = db.relationship('Product', back_populates='user', lazy=True)
 
     def set_password(self, password):
         self.password_digest = generate_password_hash(password)
@@ -44,10 +44,11 @@ class User(db.Model):
             'first_name': self.first_name,
             'last_name': self.last_name,
             'email': self.email,
-            'role': self.role.value,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'role': self.role.name,  # Using 'name' for Enum serialization
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
+
 
 class Product(db.Model):
     __tablename__ = 'products'
@@ -58,13 +59,14 @@ class Product(db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=False)
     stock = db.Column(db.Integer, nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('categories.id'), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     image_url = db.Column(db.String(255), nullable=True)  # New column for image URL
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
-
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     order_items = db.relationship('OrderItem', backref='product', lazy=True)
     category = db.relationship('Category', backref='products')
+    user = db.relationship('User', back_populates='products')
+
 
     def to_dict(self):
         return {

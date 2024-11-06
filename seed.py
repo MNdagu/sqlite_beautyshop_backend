@@ -35,7 +35,7 @@ with app.app_context():
         first_name='John', 
         last_name='Doe', 
         email='admin_unique@example.com', 
-        role=RoleEnum.ADMIN, 
+        role=RoleEnum.admin, 
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
@@ -45,7 +45,7 @@ with app.app_context():
         first_name='Jane', 
         last_name='Smith', 
         email='customer_unique@example.com', 
-        role=RoleEnum.CUSTOMER, 
+        role=RoleEnum.customer, 
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )

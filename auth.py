@@ -1,10 +1,8 @@
-#auth.py
 from flask import Blueprint, request, jsonify
 from flask_restful import Api, Resource
-from flask_jwt_extended import create_access_token
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_jwt_extended import create_access_token
 from models import db, User
-from app import app
 
 # Define Blueprint and API for authentication
 auth_bp = Blueprint('auth', __name__)
@@ -13,7 +11,7 @@ api_auth = Api(auth_bp)
 # RegisterResource class for user registration
 class RegisterResource(Resource):
     def post(self):
-        data = request.get_json()  # Get JSON data from the request
+        data = request.get_json()
 
         # Check if the user already exists
         existing_user = User.query.filter_by(email=data['email']).first()
@@ -38,10 +36,11 @@ class RegisterResource(Resource):
 
         return jsonify({"message": "User registered successfully"}), 201
 
+
 # LoginResource class for user login
 class LoginResource(Resource):
     def post(self):
-        data = request.get_json()  # Get JSON data from the request
+        data = request.get_json()
 
         # Find the user by email
         user = User.query.filter_by(email=data['email']).first()
@@ -57,6 +56,3 @@ class LoginResource(Resource):
 # Add the resources to the API
 api_auth.add_resource(RegisterResource, '/register')
 api_auth.add_resource(LoginResource, '/login')
-
-# Register Blueprint for auth
-app.register_blueprint(auth_bp)
