@@ -13,9 +13,9 @@ class RoleEnum(enum.Enum):
 
 # Enum for order status
 class OrderStatusEnum(enum.Enum):
-    PENDING = "Pending"
-    COMPLETED = "Completed"
-    CANCELLED = "Cancelled"
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -77,8 +77,8 @@ class Product(db.Model):
             'stock': self.stock,
             'category_id': self.category_id,
             'image_url': self.image_url,  # Add image_url to the dictionary
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
 
@@ -197,6 +197,27 @@ class Analytics(db.Model):
     total_orders = db.Column(db.Integer, default=0)
     revenue = db.Column(db.Numeric(10, 2), default=0.0)
     most_purchased_product_id = db.Column(db.Integer, db.ForeignKey('products.id'))
+    
+    @staticmethod
+    def update_product_views():
+        analytics = Analytics.query.first()
+        analytics.product_views += 1
+        db.session.commit()
+    
+    @staticmethod
+    def update_total_orders_and_revenue(order_total):
+        analytics = Analytics.query.first()
+        analytics.total_orders += 1
+        analytics.revenue += order_total
+        db.session.commit()
+    
+    @staticmethod
+    def update_most_purchased_product(product_id):
+        # Logic to update most purchased product based on frequency
+        # e.g., updating most_purchased_product_id
+        analytics = Analytics.query.first()
+        analytics.most_purchased_product_id = product_id
+        db.session.commit()
 
     def to_dict(self):
         return {

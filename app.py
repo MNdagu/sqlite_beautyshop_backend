@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, Blueprint
 from flask_restful import Api, Resource, reqparse
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import db, User, Product, Category, Order, OrderItem, Cart, CartItem, Invoice, Analytics, OrderStatusEnum
 from jwt_helpers import admin_required
 from flask_migrate import Migrate
@@ -40,29 +40,47 @@ def create_app():
     product_parser.add_argument('image_url', type=str, required=False, help='Image URL for the product')  # New field
 
     order_status_parser = reqparse.RequestParser()
-    order_status_parser.add_argument('status', type=str, choices=('Pending', 'Completed', 'Cancelled'), help="Invalid status")
+    order_status_parser.add_argument(
+        'status',
+        type=str,
+        choices=[status.name for status in OrderStatusEnum],  # Use enum names as choices
+        help="Invalid status. Allowed values are: {}".format(", ".join([status.value for status in OrderStatusEnum]))
+    )
+
 
     ### Product Management for Admin ###
     class AdminProductResource(Resource):
         @admin_required
         def post(self):
             args = product_parser.parse_args()
+
+            # Get the current user's ID from the JWT token
+            user_id = get_jwt_identity()['user_id']
+
+            # Check if the category exists
+            category = Category.query.get(args['category_id'])
+            if not category:
+                return {"message": "Category with the given ID does not exist"}, 400
+
+            # Create a new product with the user_id
             new_product = Product(
                 name=args['name'],
                 description=args['description'],
                 price=args['price'],
                 stock=args['stock'],
                 category_id=args['category_id'],
-                image_url=args['image_url']  # Handling the new field
+                image_url=args.get('image_url', None),  # Use None as default if no image URL is provided
+                user_id=user_id  # Associate the product with the current user
             )
+
             db.session.add(new_product)
             try:
                 db.session.commit()
                 return {"message": "Product created successfully", "product": new_product.to_dict()}
             except IntegrityError:
                 db.session.rollback()
-                return {"message": "Category ID does not exist or other integrity issue"}, 400
-
+                return {"message": "Failed to create product due to integrity issue"}, 400
+            
         @admin_required
         def patch(self, product_id):
             args = product_parser.parse_args()
@@ -76,7 +94,8 @@ def create_app():
             product.price = args['price']
             product.stock = args['stock']
             product.category_id = args['category_id']
-            product.image_url = args['image_url']  # Update the image URL
+            product.image_url = args.get('image_url', product.image_url)  # Default to existing value if no image URL provided
+
 
             db.session.commit()
             return jsonify({"message": "Product updated successfully", "product": product.to_dict()})
@@ -94,22 +113,43 @@ def create_app():
     ### Order Management for Admin ###
     class AdminOrderResource(Resource):
         @admin_required
-        def get(self):
-            orders = Order.query.all()
-            return jsonify([order.to_dict() for order in orders])
+        def get(self, order_id=None):
+            if order_id:
+                # Retrieve the specific order by ID
+                order = Order.query.get_or_404(order_id)
+                return jsonify(order.to_dict())
+            else:
+                # Retrieve all orders
+                orders = Order.query.all()
+                return jsonify([order.to_dict() for order in orders])
 
         @admin_required
         def patch(self, order_id):
+            # Parse arguments from the request
             args = order_status_parser.parse_args()
             order = Order.query.get(order_id)
+
             if not order:
                 return {"message": "Order not found"}, 404
 
-            # Update order status
-            order.status = args['status']
-            db.session.commit()
-            return jsonify({"message": "Order status updated successfully", "order": order.to_dict()})
-    
+            # Get the status value and ensure it's in the correct format (capitalized)
+            status_value = args['status'].strip().upper()  # Ensure uppercase and strip any extra spaces
+
+            # Validate if the status is one of the defined enum members
+            if status_value not in OrderStatusEnum.__members__:
+                allowed_statuses = ", ".join(OrderStatusEnum.__members__.keys())
+                return {"message": f"Invalid status. Allowed values are: {allowed_statuses}"}, 400
+
+            # Update the order status
+            try:
+                order.status = OrderStatusEnum[status_value]  # Set the status from the Enum
+                db.session.commit()
+                return {"message": "Order status updated successfully", "order_id": order.id}, 200
+            except Exception as e:
+                # Catch any potential errors that occur during the commit
+                db.session.rollback()  # Rollback in case of an error
+                return {"message": f"An error occurred: {str(e)}"}, 500
+
     cart_bp = Blueprint('cart', __name__)
     api_cart = Api(cart_bp)
     
@@ -256,6 +296,7 @@ def create_app():
             # Update the order with the calculated total price
             order.total_price = total_price
             db.session.commit()
+            Analytics.update_total_orders_and_revenue(total_price)
             
             return {"message": "Order created", "order_id": order.id}, 201
 
@@ -272,6 +313,7 @@ def create_app():
                 # Get a specific product by ID
                 product = Product.query.get(product_id)
                 if product:
+                    Analytics.update_product_views()
                     return jsonify(product.to_dict())
                 else:
                     return {"message": "Product not found"}, 404
@@ -304,10 +346,22 @@ def create_app():
     class AnalyticsResource(Resource):
         @admin_required
         def get(self):
-            analytics = Analytics.query.first()
-            if not analytics:
-                return {"message": "No analytics data available"}, 404
-            return jsonify(analytics.to_dict())
+            try:
+                # Try to fetch the first analytics record
+                analytics = Analytics.query.first()
+
+                # If no analytics data, create a new entry with default values
+                if not analytics:
+                    analytics = Analytics(product_views=0, total_orders=0, revenue=0.0)
+                    db.session.add(analytics)
+                    db.session.commit()
+
+                # Return the analytics data as JSON
+                return jsonify(analytics.to_dict())
+
+            except SQLAlchemyError as e:
+                db.session.rollback()  # Rollback the session in case of an error
+                return {"message": "An error occurred while fetching analytics data."}, 500
 
     # Create Api instance for analytics blueprint
     api_analytics_bp = Blueprint('analytics', __name__)  # Create the blueprint
