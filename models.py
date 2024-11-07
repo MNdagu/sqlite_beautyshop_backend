@@ -163,10 +163,11 @@ class CartItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
 
     def to_dict(self):
+        product = Product.query.get(self.product_id)  # Fetch the related product
         return {
             'id': self.id,
             'cart_id': self.cart_id,
-            'product_id': self.product_id,
+            'product': product.to_dict() if product else None,  # Include product details
             'quantity': self.quantity
         }
 

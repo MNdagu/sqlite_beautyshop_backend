@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify, Blueprint
 from flask_restful import Api, Resource, reqparse
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
 from sqlalchemy.exc import IntegrityError
-from models import db, User, Product, Category, Order, OrderItem, Cart, CartItem, Invoice, Analytics
+from models import db, User, Product, Category, Order, OrderItem, Cart, CartItem, Invoice, Analytics, OrderStatusEnum
 from jwt_helpers import admin_required
 from flask_migrate import Migrate
-from datetime import timedelta
+from datetime import timedelta, datetime
 from auth import auth_bp 
 from flask_cors import CORS
 import os
@@ -21,7 +21,7 @@ def create_app():
     db_path = os.path.join(os.path.abspath(os.getcwd()), "beautyshop.sqlite")
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'  # SQLite URI
     app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'  # Change this to a random secret
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(minutes=5)
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=3)
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=15)
 
     # Initialize extensions
@@ -58,7 +58,7 @@ def create_app():
             db.session.add(new_product)
             try:
                 db.session.commit()
-                return jsonify({"message": "Product created successfully", "product": new_product.to_dict()})
+                return {"message": "Product created successfully", "product": new_product.to_dict()}
             except IntegrityError:
                 db.session.rollback()
                 return {"message": "Category ID does not exist or other integrity issue"}, 400
@@ -109,26 +109,94 @@ def create_app():
             order.status = args['status']
             db.session.commit()
             return jsonify({"message": "Order status updated successfully", "order": order.to_dict()})
-
+    
     cart_bp = Blueprint('cart', __name__)
     api_cart = Api(cart_bp)
+    
+    class CartCreationResource(Resource):
+        @jwt_required()
+        def post(self):
+            # Get the user ID from the JWT token
+            user_id = get_jwt_identity()['user_id']
+
+            # Check if the user already has a cart
+            existing_cart = Cart.query.filter_by(user_id=user_id).first()
+
+            if existing_cart:
+                return {"message": "Cart already exists for this user"}, 400
+
+            # Create a new cart for the user
+            cart = Cart(
+                user_id=user_id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+
+            # Add and commit to the database
+            db.session.add(cart)
+            db.session.commit()
+
+            return {"message": "Cart created successfully", "cart_id": cart.id}, 201
+        
+    api_cart.add_resource(CartCreationResource, '/cart/create')
+
+    
 
     class CartResource(Resource):
+        
+        @jwt_required()
+        def get(self):
+            user_id = get_jwt_identity()['user_id']
+            cart = Cart.query.filter_by(user_id=user_id).first()
+            
+            if not cart:
+                return {"message": "No cart found for this user"}, 404
+            
+            cart_items = CartItem.query.filter_by(cart_id=cart.id).all()
+            cart_items_dict = [item.to_dict() for item in cart_items]
+            
+            return (cart_items_dict), 200
+        
         @jwt_required()
         def post(self):
             user_id = get_jwt_identity()['user_id']
             data = request.get_json()
-            cart_item = CartItem(cart_id=data['cart_id'], product_id=data['product_id'], quantity=data['quantity'])
+            
+            cart = Cart.query.filter_by(user_id=user_id).first()
+            if not cart:
+                return {"message": "Cart not found for this user, please create a cart first"}, 404
+            
+            cart_item = CartItem(cart_id=cart.id, product_id=data['product_id'], quantity=data['quantity'])
             db.session.add(cart_item)
             db.session.commit()
-            return jsonify({"message": "Added to cart"}), 201
+            return {"message": "Added to cart"}, 201
+        
+        @jwt_required()
+        def patch(self, cart_item_id):
+            cart_item = CartItem.query.get_or_404(cart_item_id)
+            data = request.get_json()
+
+            # Update only the fields provided in the request
+            if 'quantity' in data:
+                cart_item.quantity = data['quantity']
+            
+            db.session.commit()
+            return {"message": "Cart item updated", "cart_item": cart_item.to_dict()}, 200
 
         @jwt_required()
-        def delete(self, cart_item_id):
-            cart_item = CartItem.query.get_or_404(cart_item_id)
-            db.session.delete(cart_item)
-            db.session.commit()
-            return jsonify({"message": "Item removed from cart"}), 200
+        def delete(self, cart_item_id=None):
+            if cart_item_id:
+                cart_item = CartItem.query.get_or_404(cart_item_id)
+                db.session.delete(cart_item)
+                db.session.commit()
+                return {"message": "Item removed from cart"}, 200
+            else:
+                user_id = get_jwt_identity()['user_id']
+                cart_items = CartItem.query.filter_by(cart_id=user_id).all()
+                for item in cart_items:
+                    db.session.delete(item)
+                db.session.commit()
+                return {"message": "Cart cleared successfully"}, 200
 
     api_cart.add_resource(CartResource, '/cart', '/cart/<int:cart_item_id>')
 
@@ -143,19 +211,54 @@ def create_app():
                 order = Order.query.get_or_404(order_id)
                 if order.user_id != user_id:
                     return jsonify({"message": "Unauthorized"}), 403
-                return jsonify({"status": order.status.value, "total_price": str(order.total_price)})
+                return jsonify({
+            "status": order.status.value,
+            "total_price": str(order.total_price),
+            "order_items": [item.to_dict() for item in order.order_items]
+                })
             else:
                 orders = Order.query.filter_by(user_id=user_id).all()
-                return jsonify([{"status": o.status.value, "total_price": str(o.total_price)} for o in orders])
-
+                return jsonify([{
+                    "status": o.status.value,
+                    "total_price": str(o.total_price),
+                    "order_items": [item.to_dict() for item in o.order_items]
+                } for o in orders])
+        
         @jwt_required()
         def post(self):
             data = request.get_json()
+            
             user_id = get_jwt_identity()['user_id']
-            order = Order(user_id=user_id, total_price=data['total_price'], status="Pending")
+            
+            # Create the order (initial total price is set to 0)
+            order = Order(user_id=user_id, total_price=0, status=OrderStatusEnum.PENDING)
             db.session.add(order)
             db.session.commit()
-            return jsonify({"message": "Order created"}), 201
+            
+            total_price = 0  # Initialize total price
+            
+            for item_data in data.get('order_items', []):
+                product = Product.query.get(item_data['product_id'])
+                if not product:
+                    return {"message": f"Product with ID {item_data['product_id']} not found"}, 404
+                
+                order_item = OrderItem(
+                    order_id=order.id,
+                    product_id=product.id,
+                    quantity=item_data['quantity'],
+                    price=product.price
+                )
+                db.session.add(order_item)
+                
+                # Calculate the total price based on quantity and product price
+                total_price += product.price * item_data['quantity']
+            
+            # Update the order with the calculated total price
+            order.total_price = total_price
+            db.session.commit()
+            
+            return {"message": "Order created", "order_id": order.id}, 201
+
 
     api_order.add_resource(OrderResource, '/orders', '/orders/<int:order_id>')
 
@@ -164,9 +267,18 @@ def create_app():
 
     class ProductResource(Resource):
         @jwt_required()
-        def get(self):
-            products = Product.query.all()
-            return jsonify([product.to_dict() for product in products])
+        def get(self, product_id=None):
+            if product_id:
+                # Get a specific product by ID
+                product = Product.query.get(product_id)
+                if product:
+                    return jsonify(product.to_dict())
+                else:
+                    return {"message": "Product not found"}, 404
+            else:
+                # Get all products
+                products = Product.query.all()
+                return jsonify([product.to_dict() for product in products])
 
         @jwt_required()
         def post(self):
@@ -183,7 +295,10 @@ def create_app():
             db.session.commit()
             return jsonify({"message": "Product created successfully", "product": new_product.to_dict()}), 201
 
-    api_product.add_resource(ProductResource, '/products')
+
+        # Register both endpoints: one for all products and one for a single product by ID
+    api_product.add_resource(ProductResource, '/products', '/products/<int:product_id>')
+
 
     ### Analytics Management for Admin ###
     class AnalyticsResource(Resource):
