@@ -296,10 +296,18 @@ def create_app():
             # Update the order with the calculated total price
             order.total_price = total_price
             db.session.commit()
+            
+            invoice = Invoice(
+                order_id=order.id,
+                billing_address=data['billing_address'],  # Assume billing address is included in the request
+                total_amount=order.total_price
+            )
+            db.session.add(invoice)
+            db.session.commit()
+            
             Analytics.update_total_orders_and_revenue(total_price)
             
-            return {"message": "Order created", "order_id": order.id}, 201
-
+            return {"message": "Order created and invoice generated", "order_id": order.id, "invoice_id": invoice.id}, 201
 
     api_order.add_resource(OrderResource, '/orders', '/orders/<int:order_id>')
 

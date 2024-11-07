@@ -179,6 +179,8 @@ class Invoice(db.Model):
     billing_address = db.Column(db.String(255), nullable=False)
     total_amount = db.Column(db.Numeric(10, 2), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    order = db.relationship('Order', backref='invoices')
 
     def to_dict(self):
         return {
