@@ -9,6 +9,7 @@ flask = "*"
 flask-restful = "*"
 flask-migrate = "*"
 flask-cors = "*"
+marshmallow = "*"
 
 [dev-packages]
 
