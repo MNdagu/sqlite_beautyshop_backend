@@ -1,3 +1,5 @@
+#app.py
+
 from flask import Flask, request, jsonify, Blueprint
 from flask_restful import Api, Resource, reqparse
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity
@@ -17,11 +19,10 @@ migrate = Migrate()
 def create_app():
     app = Flask(__name__)
 
-    # SQLite configuration for local testing or small deployments
     db_path = os.path.join(os.path.abspath(os.getcwd()), "beautyshop.sqlite")
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'  # SQLite URI
     app.config['JWT_SECRET_KEY'] = 'your_jwt_secret_key'  # Change this to a random secret
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=3)
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=5)
     app.config["JWT_REFRESH_TOKEN_EXPIRES"] = timedelta(days=15)
 
     # Initialize extensions
@@ -149,6 +150,68 @@ def create_app():
                 # Catch any potential errors that occur during the commit
                 db.session.rollback()  # Rollback in case of an error
                 return {"message": f"An error occurred: {str(e)}"}, 500
+            
+    category_bp = Blueprint('categories', __name__)
+    category = Api(category_bp)
+            
+     ### Category Management for Admin ###
+    class CategoryResource(Resource):
+        @admin_required
+        def post(self):
+            data = request.get_json()
+            name = data.get('name')
+            description = data.get('description')
+
+            # Check if category already exists
+            category = Category.query.filter_by(name=name).first()
+            if category:
+                return {"message": "Category already exists"}, 400
+
+            # Create a new category
+            new_category = Category(name=name, description=description)
+            db.session.add(new_category)
+            db.session.commit()
+            return {"message": "Category created successfully", "category": new_category.to_dict()}
+        
+        @jwt_required()
+        def get(self, category_id=None):
+            if category_id:
+                # Retrieve a specific category by ID
+                category = Category.query.get(category_id)
+                if category:
+                    return jsonify(category.to_dict())
+                else:
+                    return {"message": "Category not found"}, 404
+            else:
+                # Retrieve all categories
+                categories = Category.query.all()
+                return jsonify([category.to_dict() for category in categories])
+
+        @admin_required
+        def patch(self, category_id):
+            data = request.get_json()
+            category = Category.query.get(category_id)
+            if not category:
+                return {"message": "Category not found"}, 404
+
+            # Update category fields
+            category.name = data.get('name', category.name)
+            category.description = data.get('description', category.description)
+            db.session.commit()
+            return jsonify({"message": "Category updated successfully", "category": category.to_dict()})
+
+        @admin_required
+        def delete(self, category_id):
+            category = Category.query.get(category_id)
+            if not category:
+                return {"message": "Category not found"}, 404
+
+            db.session.delete(category)
+            db.session.commit()
+            return {"message": "Category deleted successfully"}, 200
+    
+    category.add_resource(CategoryResource, '/categories', '/categories/<int:category_id>')
+
 
     cart_bp = Blueprint('cart', __name__)
     api_cart = Api(cart_bp)
@@ -405,6 +468,8 @@ def create_app():
     app.register_blueprint(api_analytics_bp, url_prefix='/api')  # Register analytics blueprint
     app.register_blueprint(invoice_bp, url_prefix='/api')  # Register invoice blueprint
     app.register_blueprint(auth_bp, url_prefix='/api')
+    app.register_blueprint(category_bp, url_prefix='/api')
+
 
     return app
 
